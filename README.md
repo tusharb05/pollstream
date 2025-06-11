@@ -41,7 +41,7 @@ Here’s a simplified version of how real-time updates happen:
 
 ---
 
-![PollStream Architecture Diagram](./assets/pollstream-arch.png)
+![PollStream Architecture Diagram](./assets/pollstream_-_arch.png)
 *Figure: PollStream Microservices Architecture*
 
 ---
