@@ -1,0 +1,7 @@
+Django
+djangorestframework
+redis
+celery
+psycopg2-binary
+pika
+django-cors-headers

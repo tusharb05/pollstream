@@ -1,84 +1,114 @@
-# Turborepo starter
+# 🗳️ PollStream - Real-Time Polling Platform
 
-This Turborepo starter is maintained by the Turborepo core team.
+PollStream is a real-time, microservices-based polling application designed for scalability, responsiveness, and fault-tolerance. It allows users to vote on active polls and see updates instantly as others vote — all without needing to refresh the page.
 
-## Using this example
+![PollStream Demo](./assets/pollstream-output.png)
+*Figure: Real-time poll updates in action*
 
-Run the following command:
+---
 
-```sh
-npx create-turbo@latest
-```
+## 🧩 Microservices Architecture
 
-## What's inside?
+PollStream is architected around **microservices**, each with a clearly defined responsibility:
 
-This Turborepo includes the following packages/apps:
+### 1. 🧠 Poll Service
+- Manages creation and listing of polls.
+- Stores poll metadata and vote counts in PostgreSQL.
+- Runs a **Celery worker** that periodically disables expired polls (`is_active = False`).
+- Listens to messages from **RabbitMQ** to update vote tallies in the DB.
 
-### Apps and Packages
+### 2. ✅ Vote Service
+- Accepts and verifies votes from users.
+- Pushes valid votes as tasks to **Celery**, decoupling request handling from heavy processing.
+- Sends vote events to **RabbitMQ** to inform Poll Service about new votes.
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### 3. 🔌 WebSocket Service
+- Uses **Django Channels** to maintain persistent WebSocket connections with clients.
+- Subscribes to **Redis pub/sub** channels for new vote events.
+- Notifies all connected clients in real time when someone votes on a poll.
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+---
 
-### Utilities
+## 📡 Real-Time Flow
 
-This Turborepo has some additional tools already setup for you:
+Here’s a simplified version of how real-time updates happen:
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+1. A user votes → Vote Service verifies and queues the task via **Celery**.
+2. Celery worker updates Vote DB and publishes vote event to **RabbitMQ**.
+3. Poll Service (subscriber) receives message and updates poll vote counts in PostgreSQL.
+4. After DB update, Poll Service publishes the event to **Redis pub/sub**.
+5. WebSocket Service receives it and **broadcasts** the latest poll data to all connected users.
 
-### Build
+---
 
-To build all apps and packages, run the following command:
+![PollStream Architecture Diagram](./assets/pollstream-arch.png)
+*Figure: PollStream Microservices Architecture*
 
-```
-cd my-turborepo
-pnpm build
-```
+---
 
-### Develop
+## ⚙️ Technologies Used
 
-To develop all apps and packages, run the following command:
+| Component          | Technology                |
+|-------------------|---------------------------|
+| Backend Framework | Django, Django REST       |
+| Realtime Layer    | Django Channels + Redis   |
+| Queue/Async Tasks | Celery + RabbitMQ         |
+| Databases         | PostgreSQL                |
+| Pub/Sub           | Redis Channels            |
+| Containerization  | Docker + Docker Compose   |
+| Frontend          | React.js     |
 
-```
-cd my-turborepo
-pnpm dev
-```
+---
 
-### Remote Caching
+## 🚀 Features
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+- 🛠️ Microservices architecture with independent scaling
+- 📊 Real-time vote updates via WebSocket
+- ⏱️ Auto-disabling of expired polls via Celery tasks
+- 📤 Vote processing via background workers
+- ⚡ Instant client updates through Redis pub/sub and Channels
+- 🧪 Production-ready Docker setup for all services
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.com/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+---
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
+## 🧪 Services Overview
 
-```
-cd my-turborepo
-npx turbo login
-```
+### Poll Service
+- **Endpoints**: `GET /polls/`, `POST /polls/`
+- **Celery Task**: Auto-disable expired polls
+- **RabbitMQ Listener**: Update vote counts from vote service
+- **Redis Publisher**: Publishes vote updates to WebSocket service
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+### Vote Service
+- **Endpoints**: `POST /votes/`
+- **Celery Task**: Validate and process vote
+- **RabbitMQ Publisher**: Notifies Poll Service of new vote
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+### WebSocket Service
+- **Endpoint**: `ws://.../ws/polls/{poll_id}/`
+- **Redis Subscriber**: Listens to poll updates
+- **Real-Time Updates**: Broadcasts to all users in a room
 
-```
-npx turbo link
-```
+---
 
-## Useful Links
+## 🧵 Message Queue Flow
 
-Learn more about the power of Turborepo:
+```mermaid
+sequenceDiagram
+    participant User
+    participant VoteService
+    participant CeleryWorker
+    participant RabbitMQ
+    participant PollService
+    participant Redis
+    participant WebSocketService
 
-- [Tasks](https://turborepo.com/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.com/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.com/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.com/docs/reference/configuration)
-- [CLI Usage](https://turborepo.com/docs/reference/command-line-reference)
+    User->>VoteService: Submit Vote
+    VoteService->>CeleryWorker: Queue vote task
+    CeleryWorker->>RabbitMQ: Publish vote message
+    RabbitMQ->>PollService: Deliver vote message
+    PollService->>PollService: Update DB
+    PollService->>Redis: Publish vote update
+    Redis->>WebSocketService: Deliver update
+    WebSocketService->>User: Notify clients via WebSocket
+

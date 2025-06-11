@@ -1,0 +1,321 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    healthcheck:
+      # Correctly check the database specified by POSTGRES_DB
+      # test: CMD-SHELL pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend_net
+
+  poll_service:
+    build:
+      context: ../apps/poll_service
+    command: python manage.py runserver 0.0.0.0:8001
+    volumes:
+      - ../apps/poll_service:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      poll_service_migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - 8001:8001
+    environment:
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+      DATABASE_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+    networks:
+      - backend_net
+
+  vote_postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: vote_db
+      POSTGRES_USER: vote_user
+      POSTGRES_PASSWORD: vote_pass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - vote_pg_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: pass
+    ports:
+      - "15672:15672" # management UI
+      - "5672:5672" # AMQP
+    networks:
+      - backend_net
+
+  vote_service:
+    build:
+      context: ../apps/vote_service
+    command: python manage.py runserver 0.0.0.0:8002
+    volumes:
+      - ../apps/vote_service:/app
+    depends_on:
+      - vote_postgres
+      - redis
+      - rabbitmq
+    environment:
+      # Postgres (vote_log DB)
+      POSTGRES_DB: vote_db
+      POSTGRES_USER: vote_user
+      POSTGRES_PASSWORD: vote_pass
+      DATABASE_HOST: vote_postgres
+
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: pass
+
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+
+      # RabbitMQ
+      RABBITMQ_URL: amqp://user:pass@rabbitmq:5672//
+    ports:
+      - "8002:8002"
+    networks:
+      - backend_net
+
+  vote_worker:
+    build:
+      context: ../apps/vote_service
+    command: >
+      celery -A vote_service worker
+      --loglevel=info
+      --concurrency=2
+      --autoscale=10,3
+    depends_on:
+      - vote_postgres
+      - redis
+      - rabbitmq
+    environment:
+      POSTGRES_DB: vote_db
+      POSTGRES_USER: vote_user
+      POSTGRES_PASSWORD: vote_pass
+      DATABASE_HOST: vote_postgres
+
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: pass
+
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://user:pass@rabbitmq:5672/
+    networks:
+      - backend_net
+
+  poll_consumer:
+    build:
+      context: ../apps/poll_service
+    command: python manage.py consume_vote_updates
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      vote_postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      poll_service_migrate:
+        condition: service_completed_successfully
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: pass
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+      DATABASE_HOST: postgres
+
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      RABBITMQ_URL: amqp://user:pass@rabbitmq:5672/
+    networks:
+      - backend_net
+
+  ws_service:
+    build:
+      context: ../apps/ws_service
+    volumes:
+      - ../apps/ws_service:/app
+    # command: ./entrypoint.sh
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Django settings
+      DJANGO_SETTINGS_MODULE: ws_service.settings
+
+      # Redis for channel layer and pub/sub
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+    ports:
+      - "8003:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z redis 6379"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend_net
+
+  poll_worker:
+    build:
+      context: ../apps/poll_service
+    command: celery -A poll_service worker --loglevel=info -Q poll_service_queue
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      poll_service_migrate:
+        condition: service_completed_successfully
+      poll_periodic_task_initializer:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+      DATABASE_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://user:pass@rabbitmq:5672/
+    networks:
+      - backend_net
+
+  poll_periodic_task_initializer:
+    build:
+      context: ../apps/poll_service
+    command: python manage.py setup_periodic_tasks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      poll_service_migrate:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+      DATABASE_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://user:pass@rabbitmq:5672/
+    networks:
+      - backend_net
+
+  poll_beat:
+    build:
+      context: ../apps/poll_service
+    command: celery -A poll_service beat --loglevel=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      poll_service_migrate:
+        condition: service_completed_successfully
+      poll_periodic_task_initializer:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+      DATABASE_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://user:pass@rabbitmq:5672/
+    networks:
+      - backend_net
+
+  poll_service_migrate:
+    build:
+      context: ../apps/poll_service
+    command: ""
+    entrypoint: /app/entrypoint.sh
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      RUN_MIGRATIONS: "true"
+      POSTGRES_DB: poll_db
+      POSTGRES_USER: poll_user
+      POSTGRES_PASSWORD: poll_pass
+      DATABASE_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    networks:
+      - backend_net
+
+networks:
+  backend_net:
+    driver: bridge
+  frontend_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  vote_pg_data:
