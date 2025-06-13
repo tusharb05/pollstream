@@ -2,7 +2,7 @@
 
 PollStream is a real-time, microservices-based polling application designed for scalability, responsiveness, and fault-tolerance. It allows users to vote on active polls and see updates instantly as others vote — all without needing to refresh the page.
 
-![PollStream Demo](./assets/pollstream-output.png)
+![PollStream Demo](./assets/pollstream-output.png)  
 *Figure: Real-time poll updates in action*
 
 ---
@@ -16,6 +16,8 @@ PollStream is architected around **microservices**, each with a clearly defined 
 - Stores poll metadata and vote counts in PostgreSQL.
 - Runs a **Celery worker** that periodically disables expired polls (`is_active = False`).
 - Listens to messages from **RabbitMQ** to update vote tallies in the DB.
+- Implements **API Throttling** to limit request rates and protect the service.
+- Supports **API Pagination** on poll listing endpoints for performance and scalability.
 
 ### 2. ✅ Vote Service
 - Accepts and verifies votes from users.
@@ -41,7 +43,7 @@ Here’s a simplified version of how real-time updates happen:
 
 ---
 
-![PollStream Architecture Diagram](./assets/pollstream_arch.png)
+![PollStream Architecture Diagram](./assets/pollstream_arch.png)  
 *Figure: PollStream Microservices Architecture*
 
 ---
@@ -56,7 +58,7 @@ Here’s a simplified version of how real-time updates happen:
 | Databases         | PostgreSQL                |
 | Pub/Sub           | Redis Channels            |
 | Containerization  | Docker + Docker Compose   |
-| Frontend          | React.js     |
+| Frontend          | React.js                  |
 
 ---
 
@@ -68,6 +70,8 @@ Here’s a simplified version of how real-time updates happen:
 - 📤 Vote processing via background workers
 - ⚡ Instant client updates through Redis pub/sub and Channels
 - 🧪 Production-ready Docker setup for all services
+- 🔒 API Throttling to prevent abuse and ensure fair usage
+- 📃 API Pagination on poll listings for optimized performance
 
 ---
 
@@ -78,6 +82,9 @@ Here’s a simplified version of how real-time updates happen:
 - **Celery Task**: Auto-disable expired polls
 - **RabbitMQ Listener**: Update vote counts from vote service
 - **Redis Publisher**: Publishes vote updates to WebSocket service
+- **Extras**:
+  - ⏳ Throttling enabled (e.g., rate-limited access)
+  - 📄 Pagination on poll listing for better client performance
 
 ### Vote Service
 - **Endpoints**: `POST /votes/`
@@ -111,4 +118,3 @@ sequenceDiagram
     PollService->>Redis: Publish vote update
     Redis->>WebSocketService: Deliver update
     WebSocketService->>User: Notify clients via WebSocket
-
