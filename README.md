@@ -3,6 +3,7 @@
 PollStream is a real-time, microservices-based polling application designed for scalability, responsiveness, and fault-tolerance. It allows users to vote on active polls and see updates instantly as others vote — all without needing to refresh the page.
 
 ![PollStream Demo](./assets/pollstream-output.png)  
+[![Watch the video](./assets/pollstream_arch.png)](./assets//demo.mp4)
 *Figure: Real-time poll updates in action*
 
 ---
