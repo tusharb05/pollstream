@@ -43,6 +43,15 @@ INSTALLED_APPS = [
     'django_celery_beat'
 ]
 
+# Set the default timezone for Django's operations and template rendering.
+# For India, this is 'Asia/Kolkata'.
+TIME_ZONE = 'Asia/Kolkata'
+
+# This is the most important setting.
+# It tells Django to be timezone-aware. When True, Django stores all
+# datetimes in UTC in the database.
+USE_TZ = True
+
 import os
 # CELERY SETTINGS
 CELERY_BROKER_URL = os.getenv("RABBITMQ_URL", "amqp://user:pass@rabbitmq:5672/")

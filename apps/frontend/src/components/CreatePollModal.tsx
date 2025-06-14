@@ -41,6 +41,35 @@ export default function CreatePollModal({
 		setOptions(newOptions);
 	};
 
+	// const handleSubmit = async (e: React.FormEvent) => {
+	// 	e.preventDefault();
+
+	// 	const validOptions = options.filter((opt) => opt.trim());
+	// 	if (validOptions.length < 2) {
+	// 		addToast("Please provide at least 2 options", "error");
+	// 		return;
+	// 	}
+
+	// 	setLoading(true);
+	// 	try {
+	// 		await axios.post("http://localhost:8001/api/polls/create/", {
+	// 			title: title.trim(),
+	// 			description: description.trim(),
+	// 			creator_name: fullName,
+	// 			end_time: endTime,
+	// 			options: validOptions.map((text) => ({ text, vote_count: 0 })),
+	// 		});
+
+	// 		addToast("Poll created successfully!", "success");
+	// 		onPollCreated();
+	// 	} catch (error) {
+	// 		console.error("Error creating poll:", error);
+	// 		addToast("Failed to create poll. Please try again.", "error");
+	// 	} finally {
+	// 		setLoading(false);
+	// 	}
+	// };
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 
@@ -50,13 +79,24 @@ export default function CreatePollModal({
 			return;
 		}
 
+		// --- Add a check for the end time ---
+		if (!endTime) {
+			addToast("Please select an end time for the poll.", "error");
+			return;
+		}
+
 		setLoading(true);
 		try {
+			// --- Convert the local datetime string to a UTC ISO string ---
+			// new Date(endTime) parses "2025-06-14T21:00" as local IST time.
+			// .toISOString() converts it to "2025-06-14T15:30:00.000Z" (UTC).
+			const endTimeUTC = new Date(endTime).toISOString();
+
 			await axios.post("http://localhost:8001/api/polls/create/", {
 				title: title.trim(),
 				description: description.trim(),
 				creator_name: fullName,
-				end_time: endTime,
+				end_time: endTimeUTC,
 				options: validOptions.map((text) => ({ text, vote_count: 0 })),
 			});
 
