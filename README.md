@@ -5,6 +5,7 @@ PollStream is a real-time, microservices-based polling application designed for 
 ![PollStream Demo](./assets/output2.png)  
 *Figure: Real-time poll updates in action*
 
+![Watch The Video](./assets/demo.mp4)
 ---
 
 ## 🧩 Microservices Architecture
